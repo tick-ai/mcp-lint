@@ -52,21 +52,27 @@ function makeProblems() {
   return { list, add };
 }
 
-function deepEqual(a, b) {
-  if (a === b) return true;
-  if (Array.isArray(a) || Array.isArray(b)) {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
-    return a.every((item, index) => deepEqual(item, b[index]));
+/** A text that is the same for deeply equal JSON values (object keys in any order). */
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (isObject(value)) {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`)
+      .join(',')}}`;
   }
-  if (isObject(a) && isObject(b)) {
-    const keys = Object.keys(a);
-    if (keys.length !== Object.keys(b).length) return false;
-    return keys.every((key) => hasOwn(b, key) && deepEqual(a[key], b[key]));
+  return JSON.stringify(value);
+}
+
+function hasDuplicate(values) {
+  const seen = new Set();
+  for (const value of values) {
+    const key = canonical(value);
+    if (seen.has(key)) return true;
+    seen.add(key);
   }
   return false;
 }
-
-const hasDuplicate = (values) => values.some((value, i) => values.slice(0, i).some((other) => deepEqual(value, other)));
 
 const TYPE_TESTS = {
   string: (v) => typeof v === 'string',
