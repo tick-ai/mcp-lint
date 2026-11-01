@@ -52,22 +52,48 @@ function makeProblems() {
   return { list, add };
 }
 
-/** A text that is the same for deeply equal JSON values (object keys in any order). */
-function canonical(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  if (isObject(value)) {
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`)
-      .join(',')}}`;
+/**
+ * The compact JSON text of a parsed value, as JSON.stringify writes it, but without
+ * recursion, so a very deeply nested value cannot overflow the stack. With `sorted`, object
+ * keys come in order, so deeply equal values give the same text.
+ */
+function serialize(value, sorted) {
+  const out = [];
+  const stack = [{ value }];
+  while (stack.length > 0) {
+    const item = stack.pop();
+    if (item.raw !== undefined) {
+      out.push(item.raw);
+      continue;
+    }
+    const current = item.value;
+    if (Array.isArray(current)) {
+      stack.push({ raw: ']' });
+      for (let i = current.length - 1; i >= 0; i -= 1) {
+        stack.push({ value: current[i] });
+        if (i > 0) stack.push({ raw: ',' });
+      }
+      stack.push({ raw: '[' });
+    } else if (isObject(current)) {
+      const keys = sorted ? Object.keys(current).sort() : Object.keys(current);
+      stack.push({ raw: '}' });
+      for (let i = keys.length - 1; i >= 0; i -= 1) {
+        stack.push({ value: current[keys[i]] });
+        stack.push({ raw: `${JSON.stringify(keys[i])}:` });
+        if (i > 0) stack.push({ raw: ',' });
+      }
+      stack.push({ raw: '{' });
+    } else {
+      out.push(JSON.stringify(current));
+    }
   }
-  return JSON.stringify(value);
+  return out.join('');
 }
 
 function hasDuplicate(values) {
   const seen = new Set();
   for (const value of values) {
-    const key = canonical(value);
+    const key = serialize(value, true);
     if (seen.has(key)) return true;
     seen.add(key);
   }
@@ -226,7 +252,7 @@ function lintFile(options) {
   const seen = new Set();
   tools.forEach((tool, index) => lintTool(tool, index, seen, add));
 
-  const tokens = Math.ceil(JSON.stringify(tools).length / 4);
+  const tokens = Math.ceil(serialize(tools, false).length / 4);
   if (tokens > options.maxTokens) {
     add('warning', 'list-too-large', null, null, `the tool list is about ${tokens} tokens, over the limit of ${options.maxTokens}`);
     list[list.length - 1].location = '(list)';
